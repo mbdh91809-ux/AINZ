@@ -100,6 +100,7 @@ local function GetPlayerByName(str)
     end
     return nil
 end
+
 -- ────────────────────────────────────────────────
 --  حلقة التحكم بالسرعة والطيران
 -- ────────────────────────────────────────────────
@@ -151,7 +152,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ────────────────────────────────────────────────
---  الحلقة القتالية فائقة السرعة (OP Multi-Target)
+--  الحلقة القتالية فائقة السرعة (OP Multi-Target) - تم التحديث بنجاح
 -- ────────────────────────────────────────────────
 task.spawn(function()
     while true do
@@ -164,13 +165,20 @@ task.spawn(function()
         
         if Features.KillAura then
             for _, p in ipairs(Players:GetPlayers()) do
+                -- فحص تجاهل النفس وتجاهل الأصدقاء في الـ WhiteList
                 if p == LocalPlayer or IsWhitelisted(p) then continue end
+                
                 local c = p.Character
                 if c and c:FindFirstChild("HumanoidRootPart") and c:FindFirstChild("Humanoid") and c.Humanoid.Health > 0 then
                     local dist = (c.HumanoidRootPart.Position - myRoot.Position).Magnitude
+                    -- الهجوم التلقائي بناءً على المسافة المدخلة بالـ GUI
                     if dist <= Features.AttackRange then 
-                        task.spawn(function() pcall(HitRF.InvokeServer, HitRF, c.Humanoid, myRoot.Position) end)
-                        if Features.KillAuraAnims then task.spawn(PlayKillAuraAnim) end
+                        task.spawn(function() 
+                            pcall(HitRF.InvokeServer, HitRF, c.Humanoid, myRoot.Position) 
+                        end)
+                        if Features.KillAuraAnims then 
+                            task.spawn(PlayKillAuraAnim) 
+                        end
                     end
                 end
             end
@@ -467,7 +475,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     for feat, bind in pairs(Keybinds) do
         if pressedKey == bind then
             Features[feat] = not Features[feat]
-			local btn = toggleButtons[feat]
+            local btn = toggleButtons[feat]
             if btn then
                 btn.BackgroundColor3 = Features[feat] and Color3.fromRGB(255, 0, 80) or Color3.fromRGB(30, 30, 38)
                 local displayName = feat == "KillAura" and "Kill Aura" or feat == "AutoBlock" and "Auto Block" or feat == "SpeedEnabled" and "Speed" or "Flight Mode"
