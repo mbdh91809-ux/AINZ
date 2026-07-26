@@ -1,0 +1,252 @@
+-- واجهة Ainz v3 المطورة - نسخة وميض الفنتو ثانية والالتفاف التلقائي مع شاشة الخصم
+local ScreenGui = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local Title = Instance.new("TextLabel")
+local NameInput = Instance.new("TextBox")
+local TargetLabel = Instance.new("TextLabel")
+
+local GlueToggle = Instance.new("TextButton")
+local GlueBindInput = Instance.new("TextBox")
+
+local BlockToggle = Instance.new("TextButton")
+local RagdollToggle = Instance.new("TextButton")
+local UICorner = Instance.new("UICorner")
+
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.Name = "AinzV3Sticky"
+
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 15, 25)
+MainFrame.Position = UDim2.new(0.05, 0, 0.25, 0)
+MainFrame.Size = UDim2.new(0, 290, 0, 320)
+MainFrame.Active = true
+MainFrame.Draggable = true
+UICorner.Parent = MainFrame
+
+Title.Name = "Title"
+Title.Parent = MainFrame
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Font = Enum.Font.SourceSansBold
+Title.Text = "🔮 AINZ v3 - Quantum Glitch"
+Title.TextColor3 = Color3.fromRGB(255, 85, 255)
+Title.TextSize = 18
+
+NameInput.Name = "NameInput"
+NameInput.Parent = MainFrame
+NameInput.BackgroundColor3 = Color3.fromRGB(35, 30, 40)
+NameInput.Position = UDim2.new(0.05, 0, 0.15, 0)
+NameInput.Size = UDim2.new(0.9, 0, 0, 35)
+NameInput.Font = Enum.Font.SourceSans
+NameInput.PlaceholderText = "اكتب اسم الهاكر هنا..."
+NameInput.Text = ""
+NameInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+NameInput.TextSize = 14
+local rc1 = Instance.new("UICorner") rc1.Parent = NameInput
+
+TargetLabel.Name = "TargetLabel"
+TargetLabel.Parent = MainFrame
+TargetLabel.BackgroundTransparency = 1
+TargetLabel.Position = UDim2.new(0.05, 0, 0.27, 0)
+TargetLabel.Size = UDim2.new(0.9, 0, 0, 20)
+TargetLabel.Font = Enum.Font.SourceSansItalic
+TargetLabel.Text = "الحالة: مستني تكتب الاسم..."
+TargetLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+TargetLabel.TextSize = 13
+
+-- زر الانتقال والتشغيل
+GlueToggle.Parent = MainFrame
+GlueToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+GlueToggle.Position = UDim2.new(0.05, 0, 0.38, 0)
+GlueToggle.Size = UDim2.new(0.65, 0, 0, 45)
+GlueToggle.Font = Enum.Font.SourceSansBold
+GlueToggle.Text = "وضع الوميض: OFF"
+GlueToggle.TextColor3 = Color3.fromRGB(255, 85, 85)
+GlueToggle.TextSize = 15
+local rc2 = Instance.new("UICorner") rc2.Parent = GlueToggle
+
+GlueBindInput.Parent = MainFrame
+GlueBindInput.BackgroundColor3 = Color3.fromRGB(45, 40, 50)
+GlueBindInput.Position = UDim2.new(0.73, 0, 0.38, 0)
+GlueBindInput.Size = UDim2.new(0.22, 0, 0, 45)
+GlueBindInput.Font = Enum.Font.SourceSansBold
+GlueBindInput.Text = "Q"
+GlueBindInput.TextColor3 = Color3.fromRGB(0, 255, 255)
+GlueBindInput.TextSize = 16
+local rc3 = Instance.new("UICorner") rc3.Parent = GlueBindInput
+
+BlockToggle.Parent = MainFrame
+BlockToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+BlockToggle.Position = UDim2.new(0.05, 0, 0.58, 0)
+BlockToggle.Size = UDim2.new(0.9, 0, 0, 40)
+BlockToggle.Font = Enum.Font.SourceSansBold
+BlockToggle.Text = "Auto Block: OFF"
+BlockToggle.TextColor3 = Color3.fromRGB(255, 85, 85)
+BlockToggle.TextSize = 14
+local rc5 = Instance.new("UICorner") rc5.Parent = BlockToggle
+
+RagdollToggle.Parent = MainFrame
+RagdollToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+RagdollToggle.Position = UDim2.new(0.05, 0, 0.75, 0)
+RagdollToggle.Size = UDim2.new(0.9, 0, 0, 40)
+RagdollToggle.Font = Enum.Font.SourceSansBold
+RagdollToggle.Text = "Anti Ragdoll: OFF"
+RagdollToggle.TextColor3 = Color3.fromRGB(255, 85, 85)
+RagdollToggle.TextSize = 14
+local rc7 = Instance.new("UICorner") rc7.Parent = RagdollToggle
+
+-- الكود البرمجي
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CombatServices = ReplicatedStorage:WaitForChild("OldPackages"):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("CombatService")
+local GrabRF = CombatServices:WaitForChild("RF"):WaitForChild("Grab")
+local BlockRE = CombatServices:WaitForChild("RE"):FindFirstChild("Block") or CombatServices:WaitForChild("RF"):FindFirstChild("Block")
+local HitRF = CombatServices:WaitForChild("RF"):FindFirstChild("Hit")
+
+local glueActive = false
+local autoBlockEnabled = false
+local antiRagdollEnabled = false
+
+local function GetTarget()
+    local inputText = NameInput.Text
+    if inputText ~= "" then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and (string.lower(p.Name):match(string.lower(inputText)) or string.lower(p.DisplayName):match(string.lower(inputText))) then
+                return p
+            end
+        end
+    end
+    return nil
+end
+
+-- تحديث نص الحالة
+task.spawn(function()
+    while task.wait(0.1) do
+        local p = GetTarget()
+        if p then 
+            TargetLabel.Text = "مستعد للمسح الفنتو ثواني خلف: " .. p.DisplayName 
+            TargetLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+        else 
+            TargetLabel.Text = "اكتب اسم الهاكر بالظبط!" 
+            TargetLabel.TextColor3 = Color3.fromRGB(255, 150, 50) 
+        end
+    end
+end)
+
+-- [1] حلقة الانتقال الإعصاري وتوجيه الكاميرا والشاشة (Quantum Visor Lock)
+RunService.RenderStepped:Connect(function()
+    if glueActive then
+        local targetPlayer = GetTarget()
+        if targetPlayer and targetPlayer.Character and LocalPlayer.Character then
+            local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+            
+            if myHRP and targetHRP then
+                -- تصفير قوى الفيزياء لمنع ارتداد السيرفر
+                myHRP.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                myHRP.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                
+                -- إجبار كاميرا شاشتك والـ Character على النظر في نفس اتجاه شاشة الخصم بالضبط (حتى مع الشفت لوك)
+                local targetLookVector = targetHRP.CFrame.LookVector
+                local lockRotation = CFrame.lookAt(myHRP.Position, myHRP.Position + targetLookVector)
+                
+                -- تثبيت الكاميرا في نفس اتجاه نظر الخصم
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + targetLookVector)
+                
+                -- سبام الانتقال المتعدد مع دمج التوجيه الإجباري للشاشة
+                for i = 1, 5 do
+                    -- يضعك خلف ظهره بـ 1 متر، وموجه تماماً في نفس اتجاه شاشته ونظره
+                    myHRP.CFrame = (targetHRP.CFrame * CFrame.new(0, 0, 1))
+                    myHRP.CFrame = CFrame.new(myHRP.Position, myHRP.Position + targetLookVector)
+                end
+            end
+        end
+    end
+end)
+
+-- [2] حلقة الـ Grab والـ Hit المتزامنة مع الوميض (أقصى سرعة للسيرفر)
+task.spawn(function()
+    while true do
+        RunService.Heartbeat:Wait()
+        if glueActive then
+            local targetPlayer = GetTarget()
+            if targetPlayer and targetPlayer.Character then
+                for i = 1, 3 do
+                    task.spawn(function() pcall(function() GrabRF:InvokeServer(targetPlayer.Character) end) end)
+                    if HitRF then 
+                        task.spawn(function() pcall(function() HitRF:InvokeServer(targetPlayer.Character) end) end) 
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- تشغيل وإيقاف الوضع
+local function ToggleGlue()
+    glueActive = not glueActive
+    if glueActive then
+        GlueToggle.Text = "وضع الوميض + التوجيه: ON ⚡"
+		GlueToggle.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+        GlueToggle.TextColor3 = Color3.fromRGB(0,0,0)
+    else
+        GlueToggle.Text = "وضع الوميض: واقف (OFF)"
+        GlueToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+        GlueToggle.TextColor3 = Color3.fromRGB(255, 85, 85)
+    end
+end
+GlueToggle.MouseButton1Click:Connect(ToggleGlue)
+
+-- البلوك التلقائي
+local function FireBlockRemote(state)
+    if BlockRE then
+        if BlockRE:IsA("RemoteFunction") then task.spawn(function() BlockRE:InvokeServer(state) end) else BlockRE:FireServer(state) end
+    end
+end
+
+BlockToggle.MouseButton1Click:Connect(function()
+    autoBlockEnabled = not autoBlockEnabled
+    if autoBlockEnabled then
+        BlockToggle.Text = "Auto Block: ON" BlockToggle.BackgroundColor3 = Color3.fromRGB(85, 255, 85) BlockToggle.TextColor3 = Color3.fromRGB(0,0,0)
+    else
+        BlockToggle.Text = "Auto Block: OFF" BlockToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 40) BlockToggle.TextColor3 = Color3.fromRGB(255, 85, 85)
+        FireBlockRemote(false)
+    end
+end)
+task.spawn(function() while task.wait(0.05) do if autoBlockEnabled then FireBlockRemote(true) end end end)
+
+-- الـ Anti Ragdoll
+RagdollToggle.MouseButton1Click:Connect(function()
+antiRagdollEnabled = not antiRagdollEnabled
+    if antiRagdollEnabled then
+        RagdollToggle.Text = "Anti Ragdoll: ON" RagdollToggle.BackgroundColor3 = Color3.fromRGB(85, 255, 85) RagdollToggle.TextColor3 = Color3.fromRGB(0,0,0)
+    else
+        RagdollToggle.Text = "Anti Ragdoll: OFF" RagdollToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 40) RagdollToggle.TextColor3 = Color3.fromRGB(255, 85, 85)
+    end
+end)
+task.spawn(function()
+    while task.wait(0.02) do
+        if antiRagdollEnabled and LocalPlayer.Character then
+            local hum = LocalPlayer.Character:FindFirstOfClass("Humanoid")
+            if hum then
+                if hum.PlatformStand == true then hum.PlatformStand = false end
+                local state = hum:GetState()
+                if state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.Physics then
+                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            end
+        end
+    end
+end)
+
+-- الاختصارات
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    local currentGlueKey = GlueBindInput.Text:upper()
+    if currentGlueKey ~= "" and input.KeyCode == Enum.KeyCode[currentGlueKey] then ToggleGlue() end
+end)
