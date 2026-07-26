@@ -24,7 +24,7 @@ local Features = {
     WhiteList = ""
 }
 
--- أزرار الكيبورد الافتراضية للتفعيل (قابلة للتغيير من الـ GUI)
+-- أزرار الكيبورد الافتراضية
 local Keybinds = {
     KillAura = "X",
     AutoBlock = "C",
@@ -32,7 +32,7 @@ local Keybinds = {
     FlyEnabled = "E"
 }
 
--- دالات حفظ وتحميل النقاط من ملف الجهاز
+-- دالات حفظ وتحميل النقاط
 local function saveToFile()
     if writefile then
         local dataToSave = {}
@@ -79,12 +79,26 @@ local function PlayKillAuraAnim()
     pcall(function() anim:LoadAnimation(punch):Play() end)
 end
 
--- فحص القائمة البيضاء للأصدقاء
+-- قائمة الحسابات المحمية (مستحيل تتدامج نهائياً)
+local ProtectedPlayers = {
+    ["ainz"] = true,
+    ["sewar"] = true,
+    ["h0outarou"] = true
+}
+
+-- فحص القائمة البيضاء + الحسابات المحمية
 local function IsWhitelisted(plr)
-    if Features.WhiteList == "" then return false end
-    local names = string.split(string.lower(Features.WhiteList), " ")
     local targetUser = string.lower(plr.Name)
     local targetDisplay = string.lower(plr.DisplayName)
+    
+    -- فحص الحسابات المحمية تلقائياً
+    if ProtectedPlayers[targetUser] or ProtectedPlayers[targetDisplay] then
+        return true
+    end
+    
+    -- فحص الـ WhiteList المكتوبة في الـ GUI
+    if Features.WhiteList == "" then return false end
+    local names = string.split(string.lower(Features.WhiteList), " ")
     for _, name in pairs(names) do
         if name ~= "" and (targetUser:find(name) or targetDisplay:find(name)) then return true end
     end
@@ -99,6 +113,19 @@ local function GetPlayerByName(str)
         end
     end
     return nil
+end
+
+-- إنشاء تأثير التحديد باللون الأسود
+local AuraHighlight = Instance.new("Highlight")
+AuraHighlight.Name = "KillAuraTargetHighlight"
+AuraHighlight.FillColor = Color3.fromRGB(0, 0, 0)
+AuraHighlight.OutlineColor = Color3.fromRGB(0, 0, 0)
+AuraHighlight.FillTransparency = 0.4
+AuraHighlight.OutlineTransparency = 0
+
+local function ClearHighlight()
+    AuraHighlight.Adornee = nil
+    AuraHighlight.Parent = nil
 end
 
 -- ────────────────────────────────────────────────
@@ -152,50 +179,75 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ────────────────────────────────────────────────
---  الحلقة القتالية فائقة السرعة (OP Multi-Target) - تم التحديث بنجاح
+--  الحلقة القتالية المعدلة: الأقرب + تحديد أسود + حماية الحسابات
 -- ────────────────────────────────────────────────
 task.spawn(function()
     while true do
         task.wait()
         local char = LocalPlayer.Character
         local myRoot = char and char:FindFirstChild("HumanoidRootPart")
-        if not myRoot then continue end
+        
+        if not myRoot then 
+            ClearHighlight()
+            continue 
+        end
         
         if Features.AutoBlock then pcall(function() BlockRF:InvokeServer(true) end) end
         
         if Features.KillAura then
+            local closestPlayer = nil
+            local shortestDistance = Features.AttackRange
+
             for _, p in ipairs(Players:GetPlayers()) do
-                -- فحص تجاهل النفس وتجاهل الأصدقاء في الـ WhiteList
                 if p == LocalPlayer or IsWhitelisted(p) then continue end
                 
                 local c = p.Character
                 if c and c:FindFirstChild("HumanoidRootPart") and c:FindFirstChild("Humanoid") and c.Humanoid.Health > 0 then
                     local dist = (c.HumanoidRootPart.Position - myRoot.Position).Magnitude
-                    -- الهجوم التلقائي بناءً على المسافة المدخلة بالـ GUI
-                    if dist <= Features.AttackRange then 
-                        task.spawn(function() 
-                            pcall(HitRF.InvokeServer, HitRF, c.Humanoid, myRoot.Position) 
-                        end)
-                        if Features.KillAuraAnims then 
-                            task.spawn(PlayKillAuraAnim) 
-                        end
+                    if dist < shortestDistance then
+                        shortestDistance = dist
+                        closestPlayer = p
                     end
                 end
             end
+
+            if closestPlayer and closestPlayer.Character then
+                local targetChar = closestPlayer.Character
+                local targetHum = targetChar:FindFirstChild("Humanoid")
+                
+                if AuraHighlight.Adornee ~= targetChar then
+                    AuraHighlight.Adornee = targetChar
+                    AuraHighlight.Parent = targetChar
+                end
+
+                if targetHum then
+                    task.spawn(function() 
+                        pcall(HitRF.InvokeServer, HitRF, targetHum, myRoot.Position) 
+                    end)
+                    if Features.KillAuraAnims then 
+                        task.spawn(PlayKillAuraAnim) 
+                    end
+                end
+            else
+                ClearHighlight()
+            end
+        else
+            ClearHighlight()
         end
     end
 end)
 
 -- ────────────────────────────────────────────────
---  إنشاء الـ Smart GUI المتكاملة
+--  إنشاء الـ Smart GUI مع إصلاح مسار الظهور
 -- ────────────────────────────────────────────────
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "MasterSuiteGui"
 ScreenGui.ResetOnSpawn = false
-if gethiddentextures or syn then ScreenGui.Parent = game:GetService("CoreGui") else
-    local old = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("MasterSuiteGui")
-    if old then old:Destroy() end ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
+
+local CoreGui = game:GetService("CoreGui")
+local old = CoreGui:FindFirstChild("MasterSuiteGui")
+if old then old:Destroy() end
+ScreenGui.Parent = CoreGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Parent = ScreenGui
@@ -223,13 +275,12 @@ ContentFrame.Position = UDim2.new(0, 0, 0, 35)
 ContentFrame.BackgroundTransparency = 1
 ContentFrame.BorderSizePixel = 0
 ContentFrame.ScrollBarThickness = 3
-ContentFrame.CanvasSize = UDim2.new(0, 0, 0, 680) -- مساحة ممتدة لكل الخيارات
+ContentFrame.CanvasSize = UDim2.new(0, 0, 0, 680)
 local UIListLayout = Instance.new("UIListLayout", ContentFrame)
 UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 UIListLayout.Padding = UDim.new(0, 8)
 UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
--- إنشاء الأزرار للخيارات والتحكم
 local toggleButtons = {}
 local function CreateRow(featureName, displayName, hasValue)
     local row = Instance.new("Frame", ContentFrame)
@@ -282,7 +333,6 @@ CreateRow("AutoBlock", "Auto Block", nil)
 CreateRow("SpeedEnabled", "Speed", "SpeedValue")
 CreateRow("FlyEnabled", "Flight Mode", "FlyValue")
 
--- إضافة صندوق الـ WhiteList
 local WLFrame = Instance.new("Frame", ContentFrame)
 WLFrame.Size = UDim2.new(0, 240, 0, 50)
 WLFrame.BackgroundTransparency = 1
@@ -305,9 +355,7 @@ WLBox.TextSize = 12
 Instance.new("UICorner", WLBox).CornerRadius = UDim.new(0, 6)
 WLBox.FocusLost:Connect(function() Features.WhiteList = WLBox.Text end)
 
--- ────────────────────────────────────────────────
---  إضافة نظام نقاط الحفظ الذكي (Checkpoints) داخل الـ GUI
--- ────────────────────────────────────────────────
+-- نقط الحفظ
 local CPSectionLabel = Instance.new("TextLabel", ContentFrame)
 CPSectionLabel.Size = UDim2.new(0, 240, 0, 20)
 CPSectionLabel.Text = "── نقاط الحفظ الذكية (J, K, L) ──"
@@ -381,9 +429,7 @@ createSlotRow("J")
 createSlotRow("K")
 createSlotRow("L")
 
--- ────────────────────────────────────────────────
---  إضافة نظام تعقب والتحكم باللاعبين (Player Tracker)
--- ────────────────────────────────────────────────
+-- تعقب والتحكم باللاعبين
 local TrackerLabel = Instance.new("TextLabel", ContentFrame)
 TrackerLabel.Size = UDim2.new(0, 240, 0, 20)
 TrackerLabel.Text = "── التحكم باللاعبين والمشاهدة ──"
@@ -398,7 +444,7 @@ PlayerFrame.BackgroundTransparency = 1
 local NameBox = Instance.new("TextBox", PlayerFrame)
 NameBox.Size = UDim2.new(1, 0, 0, 30)
 NameBox.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
-NameBox.PlaceholderText = "اكتب اسم اللاعب هنا (حتى لو اختصار)..."
+NameBox.PlaceholderText = "اكتب اسم اللاعب هنا..."
 NameBox.Text = ""
 NameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 NameBox.Font = Enum.Font.SourceSans
@@ -458,20 +504,15 @@ TeleportBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ────────────────────────────────────────────────
---  استماع الكيبورد الفوري للتفعيل وإخفاء الواجهة بالـ Ctrl
--- ────────────────────────────────────────────────
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     local pressedKey = input.KeyCode.Name
     
-    -- ميزة إخفاء وإظهار الـ GUI بالكامل عند ضغط Left Control
     if input.KeyCode == Enum.KeyCode.LeftControl then
         MainFrame.Visible = not MainFrame.Visible
         return
     end
     
-    -- تشغيل الميزات القتالية والحركية عبر الكيبورد
     for feat, bind in pairs(Keybinds) do
         if pressedKey == bind then
             Features[feat] = not Features[feat]
@@ -485,7 +526,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         end
     end
     
-    -- تشغيل نقاط الحفظ الذكية عبر الكيبورد (J, K, L)
     if pressedKey == "J" or pressedKey == "K" or pressedKey == "L" then
         local character = LocalPlayer.Character
         local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -501,7 +541,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- وميض نيون جمالي مستمر للـ UI
 RunService.RenderStepped:Connect(function()
     FrameStroke.Color = Color3.fromHSV((tick() * 0.15) % 1, 0.85, 1)
 end)
