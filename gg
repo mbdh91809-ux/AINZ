@@ -1,544 +1,306 @@
--- [[ Smart Combat, Movement & Checkpoint Suite: God Edition ]] --
-local Players          = game:GetService("Players")
-local RunService       = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- [[ Kill Aura GUI Smart Dashboard ]] --
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
-local HttpService      = game:GetService("HttpService")
-local LocalPlayer      = Players.LocalPlayer
-local Camera           = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
 
--- إعدادات الحفظ التلقائي لنقاط الانتقال
-local fileName = "EasyCheckpoints_Map_" .. game.PlaceId .. ".txt"
-local positions = { J = nil, K = nil, L = nil }
+-- الجداول والقوائم (الهدف والوايت ليست)
+local TargetNamesList = {}
+local FriendsNamesList = {}
 
--- إعدادات الحالات والميزات
-local Features = {
-    KillAura = false,
-    KillAuraAnims = false,
-    AutoBlock = false,
-    AttackRange = 25,
-    SpeedEnabled = false,
-    FlyEnabled = false,
-    SpeedValue = 50,
-    FlyValue = 50,
-    WhiteList = ""
-}
+-- الإعدادات الافتراضية المستخلصة من سكريبتك
+local KillAuraEnabled = false
+local KillAuraRange = 20
+local AttacksPerSecond = 15
 
--- أزرار الكيبورد الافتراضية
-local Keybinds = {
-    KillAura = "X",
-    AutoBlock = "C",
-    SpeedEnabled = "Q",
-    FlyEnabled = "E"
-}
-
--- دالات حفظ وتحميل النقاط
-local function saveToFile()
-    if writefile then
-        local dataToSave = {}
-        for k, v in pairs(positions) do
-            if v then dataToSave[k] = {v.X, v.Y, v.Z} end
-        end
-        pcall(writefile, fileName, HttpService:JSONEncode(dataToSave))
-    end
-end
-
-local function loadFromFile()
-    if readfile and isfile and isfile(fileName) then
-        local success, content = pcall(readfile, fileName)
-        if success and content then
-            local success2, decoded = pcall(HttpService.JSONDecode, HttpService, content)
-            if success2 and decoded then
-                for k, v in pairs(decoded) do
-                    positions[k] = Vector3.new(v[1], v[2], v[3])
-                end
-            end
-        end
-    end
-end
-loadFromFile()
-
--- الوصول إلى ريموتات اللعبة
-local CombatRF = ReplicatedStorage:WaitForChild("OldPackages", 8):WaitForChild("Knit", 5):WaitForChild("Services", 5):WaitForChild("CombatService", 5):WaitForChild("RF", 5)
-local HitRF, BlockRF = CombatRF:WaitForChild("Hit", 5), CombatRF:WaitForChild("Block", 5)
-
--- تحميل حركات الضرب
-local animPath = ReplicatedStorage:WaitForChild("OldControllers", 8):WaitForChild("CombatClient", 5):WaitForChild("Animations", 5)
-local rightPunch, leftPunch = animPath:WaitForChild("Right Punch", 5), animPath:WaitForChild("Left Punch", 5)
-local ANIM_DELAY, lastAnimTime = 0.05, 0
-
-local function PlayKillAuraAnim()
-    local now = os.clock()
-    if now - lastAnimTime < ANIM_DELAY then return end
-    lastAnimTime = now
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local anim = hum and hum:FindFirstChildOfClass("Animator")
-    if not anim then return end
-    local punch = (math.random(1, 2) == 1) and rightPunch or leftPunch
-    pcall(function() anim:LoadAnimation(punch):Play() end)
-end
-
--- فحص القائمة البيضاء للأصدقاء
-local function IsWhitelisted(plr)
-    if Features.WhiteList == "" then return false end
-    local names = string.split(string.lower(Features.WhiteList), " ")
-    local targetUser = string.lower(plr.Name)
-    local targetDisplay = string.lower(plr.DisplayName)
-    for _, name in pairs(names) do
-        if name ~= "" and (targetUser:find(name) or targetDisplay:find(name)) then return true end
+-- وظائف التحقق الذكي من القوائم
+local function isTarget(name)
+    if #TargetNamesList == 0 then return true end -- إذا كانت القائمة فارغة يضرب الجميع تلقائياً
+    local ln = name:lower()
+    for _, t in ipairs(TargetNamesList) do
+        if ln:find(t, 1, true) then return true end
     end
     return false
 end
 
--- دالة البحث عن اللاعبين بالاختصارات
-local function GetPlayerByName(str)
-    for _, p in ipairs(Players:GetPlayers()) do
-        if string.lower(str) == string.lower(p.Name) or string.sub(string.lower(p.Name), 1, #str) == string.lower(str) or string.lower(str) == string.lower(p.DisplayName) or string.sub(string.lower(p.DisplayName), 1, #str) == string.lower(str) then
-            return p
-        end
+local function isFriend(name)
+    local ln = name:lower()
+    for _, f in ipairs(FriendsNamesList) do 
+        if ln:find(f, 1, true) then return true end 
     end
-    return nil
+    return false
 end
 
--- إنشاء تأثير التحديد باللون الأسود
-local AuraHighlight = Instance.new("Highlight")
-AuraHighlight.Name = "KillAuraTargetHighlight"
-AuraHighlight.FillColor = Color3.fromRGB(0, 0, 0)
-AuraHighlight.OutlineColor = Color3.fromRGB(0, 0, 0)
-AuraHighlight.FillTransparency = 0.4
-AuraHighlight.OutlineTransparency = 0
+-- محرك الـ Kill Aura المستخلص والمعدل ليعمل بكفاءة وسرعة ضرب عالية
+local lastAttack = 0
+local killAuraConnection = nil
 
-local function ClearHighlight()
-    AuraHighlight.Adornee = nil
-    AuraHighlight.Parent = nil
-end
-
--- ────────────────────────────────────────────────
---  حلقة التحكم بالسرعة والطيران
--- ────────────────────────────────────────────────
-local flyBodyVel, flyBodyGyro
-RunService.Heartbeat:Connect(function()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not root or not hum then return end
-
-    if Features.SpeedEnabled and hum.MoveDirection.Magnitude > 0 then
-        root.CFrame = root.CFrame + (hum.MoveDirection * (Features.SpeedValue / 60))
-    end
-
-    if Features.FlyEnabled then
-        if not flyBodyVel or flyBodyVel.Parent ~= root then
-            if root:FindFirstChild("FlyVelocity") then root.FlyVelocity:Destroy() end
-            if root:FindFirstChild("FlyGyro") then root.FlyGyro:Destroy() end
+local function startKillAura()
+    if killAuraConnection then killAuraConnection:Disconnect() end
+    killAuraConnection = RunService.Heartbeat:Connect(function()
+        if not KillAuraEnabled then return end
+        
+        local myChar = LocalPlayer.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return end
+        
+        local now = tick()
+        if now - lastAttack < (1 / AttacksPerSecond) then return end
+        
+        -- البحث عن أقرب هدف ينطبق عليه الشروط
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == LocalPlayer or not plr.Character then continue end
             
-            flyBodyVel = Instance.new("BodyVelocity")
-            flyBodyVel.Name = "FlyVelocity"
-            flyBodyVel.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-            flyBodyVel.Parent = root
-
-            flyBodyGyro = Instance.new("BodyGyro")
-            flyBodyGyro.Name = "FlyGyro"
-            flyBodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-            flyBodyGyro.Parent = root
-        end
-
-        local camera = workspace.CurrentCamera
-        local direction = Vector3.new(0,0,0)
-        
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction = direction + camera.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction = direction - camera.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction = direction - camera.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction = direction + camera.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then direction = direction + Vector3.new(0, 1, 0) end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then direction = direction - Vector3.new(0, 1, 0) end
-
-        flyBodyVel.Velocity = direction * Features.FlyValue
-        flyBodyGyro.CFrame = camera.CFrame
-        hum.PlatformStand = true
-    else
-        if flyBodyVel then flyBodyVel:Destroy() flyBodyVel = nil end
-        if flyBodyGyro then flyBodyGyro:Destroy() flyBodyGyro = nil end
-        if hum.PlatformStand then hum.PlatformStand = false end
-    end
-end)
-
--- ────────────────────────────────────────────────
---  الحلقة القتالية المعدلة: استهداف الأقرب + تحديد بالأسود
--- ────────────────────────────────────────────────
-task.spawn(function()
-    while true do
-        task.wait()
-        local char = LocalPlayer.Character
-        local myRoot = char and char:FindFirstChild("HumanoidRootPart")
-        
-        if not myRoot then 
-            ClearHighlight()
-            continue 
-        end
-        
-        if Features.AutoBlock then pcall(function() BlockRF:InvokeServer(true) end) end
-        
-        if Features.KillAura then
-            local closestPlayer = nil
-            local shortestDistance = Features.AttackRange -- يبحث فقط في النطاق المحدد بالـ GUI
-
-            -- البحث عن أقرب لاعب متاح
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p == LocalPlayer or IsWhitelisted(p) then continue end
-                
-                local c = p.Character
-                if c and c:FindFirstChild("HumanoidRootPart") and c:FindFirstChild("Humanoid") and c.Humanoid.Health > 0 then
-                    local dist = (c.HumanoidRootPart.Position - myRoot.Position).Magnitude
-                    if dist < shortestDistance then
-                        shortestDistance = dist
-                        closestPlayer = p
-                    end
-                end
-            end
-
-            -- هدمج وتحديد اللاعب الأقرب
-            if closestPlayer and closestPlayer.Character then
-                local targetChar = closestPlayer.Character
-                local targetHum = targetChar:FindFirstChild("Humanoid")
-                
-                -- إرفاق التحديد باللون الأسود على شخصية الهدف
-                if AuraHighlight.Adornee ~= targetChar then
-                    AuraHighlight.Adornee = targetChar
-                    AuraHighlight.Parent = targetChar
-                end
-
-                -- إرسال ضربة ريموت السيرفر للهدف الأقرب
-                if targetHum then
-                    task.spawn(function() 
-                        pcall(HitRF.InvokeServer, HitRF, targetHum, myRoot.Position) 
+            -- فحص الـ White List أولاً لحماية الأصدقاء
+            if isFriend(plr.Name) or isFriend(plr.DisplayName) then continue end
+            
+            -- فحص الـ Target List لتحديد الهدف
+            if not isTarget(plr.Name) and not isTarget(plr.DisplayName) then continue end
+            
+            local targetHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+            local targetHum = plr.Character:FindFirstChildOfClass("Humanoid")
+            
+            if targetHRP and targetHum and targetHum.Health > 0 then
+                local distance = (targetHRP.Position - myHRP.Position).Magnitude
+                if distance <= KillAuraRange then
+                    -- تفعيل ريموت الضرب الخاص باللعبة والموجود في سكريبتك الأصلي
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Grab:InvokeServer()
                     end)
-                    if Features.KillAuraAnims then 
-                        task.spawn(PlayKillAuraAnim) 
-                    end
+                    lastAttack = now
+                    break -- يضرب هدف واحد في كل دورة بناءً على سرعة الـ Attacks Per Second
                 end
-            else
-                -- إذا لم يجد أي لاعب قريب، يشيل اللون الأسود
-                ClearHighlight()
             end
-        else
-            -- إذا تم إطفاء الـ Kill Aura، يشيل اللون الأسود فوراً
-            ClearHighlight()
         end
-    end
-end)
+    end)
+end
 
--- ────────────────────────────────────────────────
---  إنشاء الـ Smart GUI المتكاملة
--- ────────────────────────────────────────────────
+local function stopKillAura()
+    if killAuraConnection then
+        killAuraConnection:Disconnect()
+        killAuraConnection = nil
+    end
+end
+
+-- ========================================== --
+--          بناء الـ GUI الذكي والعصري          --
+-- ========================================== --
+
+-- إزالة أي واجهة قديمة لمنع التكرار عند إعادة التشغيل
+if CoreGui:FindFirstChild("SmartAuraGUI") then
+    CoreGui.SmartAuraGUI:Destroy()
+end
+
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "MasterSuiteGui"
+ScreenGui.Name = "SmartAuraGUI"
+ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
-if gethiddentextures or syn then ScreenGui.Parent = game:GetService("CoreGui") else
-    local old = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("MasterSuiteGui")
-    if old then old:Destroy() end ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
 
+-- اللوحة الرئيسية (Main Frame)
 local MainFrame = Instance.new("Frame")
-MainFrame.Parent = ScreenGui
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+MainFrame.Size = UDim2.new(0, 500, 0, 350)
+MainFrame.Position = UDim2.new(0.5, -250, 0.5, -175)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MainFrame.BorderSizePixel = 0
-MainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
-MainFrame.Size = UDim2.new(0, 260, 0, 480)
-MainFrame.Active = true; MainFrame.Draggable = true
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
-local FrameStroke = Instance.new("UIStroke", MainFrame)
-FrameStroke.Thickness = 2
+MainFrame.Active = true
+MainFrame.Draggable = true -- سحب النافذة بالماوس بحرية
+MainFrame.Parent = ScreenGui
 
-local Title = Instance.new("TextLabel", MainFrame)
-Title.Size = UDim2.new(1, 0, 0, 35)
-Title.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
-Title.Text = "⚡ MASTER HACK SUITE v4 ⚡"
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
+
+-- العنوان الرئيسي
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundTransparency = 1
+Title.Text = "⚡ SMART KILL AURA SYSTEM"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 14
-Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 8)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 16
+Title.Parent = MainFrame
 
-local ContentFrame = Instance.new("ScrollingFrame", MainFrame)
-ContentFrame.Size = UDim2.new(1, 0, 1, -35)
-ContentFrame.Position = UDim2.new(0, 0, 0, 35)
-ContentFrame.BackgroundTransparency = 1
-ContentFrame.BorderSizePixel = 0
-ContentFrame.ScrollBarThickness = 3
-ContentFrame.CanvasSize = UDim2.new(0, 0, 0, 680)
-local UIListLayout = Instance.new("UIListLayout", ContentFrame)
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 8)
-UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+-- تفعيل الـ Kill Aura (زر التشغيل والإيقاف)
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0, 140, 0, 40)
+ToggleButton.Position = UDim2.new(0, 20, 0, 60)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+ToggleButton.Text = "Kill Aura: OFF"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.TextSize = 14
+ToggleButton.Parent = MainFrame
 
--- إنشاء الأزرار للخيارات والتحكم
-local toggleButtons = {}
-local function CreateRow(featureName, displayName, hasValue)
-    local row = Instance.new("Frame", ContentFrame)
-    row.Size = UDim2.new(0, 240, 0, 35)
-    row.BackgroundTransparency = 1
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 6)
+ToggleCorner.Parent = ToggleButton
 
-    local btn = Instance.new("TextButton", row)
-    btn.Size = UDim2.new(0, 140, 1, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
-    btn.Text = displayName .. " : OFF"
-    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    btn.Font = Enum.Font.SourceSansSemibold
-    btn.TextSize = 13
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    toggleButtons[featureName] = btn
-
-    btn.MouseButton1Click:Connect(function()
-        Features[featureName] = not Features[featureName]
-        btn.BackgroundColor3 = Features[featureName] and Color3.fromRGB(255, 0, 80) or Color3.fromRGB(30, 30, 38)
-        btn.Text = displayName .. (Features[featureName] and " : ON 🔥" or " : OFF")
-        btn.TextColor3 = Features[featureName] and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
-    end)
-
-    local bindBox = Instance.new("TextBox", row)
-    bindBox.Size = UDim2.new(0, 40, 1, 0)
-    bindBox.Position = UDim2.new(0, 145, 0, 0)
-    bindBox.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-    bindBox.Text = Keybinds[featureName] or "None"
-    bindBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    bindBox.Font = Enum.Font.SourceSansBold
-    bindBox.TextSize = 13
-    Instance.new("UICorner", bindBox).CornerRadius = UDim.new(0, 6)
-    bindBox.FocusLost:Connect(function() Keybinds[featureName] = string.upper(bindBox.Text) end)
-
-    if hasValue then
-        local valBox = Instance.new("TextBox", row)
-        valBox.Size = UDim2.new(0, 45, 1, 0)
-        valBox.Position = UDim2.new(0, 190, 0, 0)
-        valBox.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-        valBox.Text = tostring(Features[hasValue])
-        valBox.TextColor3 = Color3.fromRGB(0, 255, 150)
-        valBox.Font = Enum.Font.SourceSansBold
-        valBox.TextSize = 13
-        Instance.new("UICorner", valBox).CornerRadius = UDim.new(0, 6)
-        valBox.FocusLost:Connect(function() Features[hasValue] = tonumber(valBox.Text) or Features[hasValue] end)
-    end
-end
-CreateRow("KillAura", "Kill Aura", "AttackRange")
-CreateRow("AutoBlock", "Auto Block", nil)
-CreateRow("SpeedEnabled", "Speed", "SpeedValue")
-CreateRow("FlyEnabled", "Flight Mode", "FlyValue")
-
--- إضافة صندوق الـ WhiteList
-local WLFrame = Instance.new("Frame", ContentFrame)
-WLFrame.Size = UDim2.new(0, 240, 0, 50)
-WLFrame.BackgroundTransparency = 1
-local WLLabel = Instance.new("TextLabel", WLFrame)
-WLLabel.Size = UDim2.new(1, 0, 0, 18)
-WLLabel.Text = "قائمة الأصدقاء البيضاء:"
-WLLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-WLLabel.Font = Enum.Font.SourceSansBold
-WLLabel.TextSize = 12
-WLLabel.TextXAlignment = Enum.TextXAlignment.Left
-local WLBox = Instance.new("TextBox", WLFrame)
-WLBox.Size = UDim2.new(1, 0, 0, 28)
-WLBox.Position = UDim2.new(0, 0, 0, 18)
-WLBox.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
-WLBox.PlaceholderText = "اسماء مفصولة بمسافة..."
-WLBox.Text = Features.WhiteList
-WLBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-WLBox.Font = Enum.Font.SourceSans
-WLBox.TextSize = 12
-Instance.new("UICorner", WLBox).CornerRadius = UDim.new(0, 6)
-WLBox.FocusLost:Connect(function() Features.WhiteList = WLBox.Text end)
-
--- ────────────────────────────────────────────────
---  نظام نقاط الحفظ الذكي (Checkpoints)
--- ────────────────────────────────────────────────
-local CPSectionLabel = Instance.new("TextLabel", ContentFrame)
-CPSectionLabel.Size = UDim2.new(0, 240, 0, 20)
-CPSectionLabel.Text = "── نقاط الحفظ الذكية (J, K, L) ──"
-CPSectionLabel.TextColor3 = Color3.fromRGB(0, 150, 255)
-CPSectionLabel.Font = Enum.Font.SourceSansBold
-CPSectionLabel.TextSize = 12
-
-local labels = {}
-local function updateLabelText(name)
-    local container = labels[name]
-    if container then
-        local btn = container:FindFirstChild("TextButton")
-        if positions[name] then
-            btn.Text = "نقطة [" .. name .. "]: جاهزة للـ TP ⚡"
-            btn.TextColor3 = Color3.fromRGB(46, 204, 113)
-        else
-            btn.Text = "نقطة [" .. name .. "]: فارغة (اضغط للحفظ)"
-            btn.TextColor3 = Color3.fromRGB(180, 180, 180)
-        end
-    end
-end
-
-local function createSlotRow(name)
-    local row = Instance.new("Frame", ContentFrame)
-    row.Name = name
-    row.Size = UDim2.new(0, 240, 0, 35)
-    row.BackgroundTransparency = 1
-    
-    local mainBtn = Instance.new("TextButton", row)
-    mainBtn.Size = UDim2.new(0, 185, 1, 0)
-    mainBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-    mainBtn.Font = Enum.Font.SourceSansSemibold
-    mainBtn.TextSize = 13
-    Instance.new("UICorner", mainBtn).CornerRadius = UDim.new(0, 6)
-    
-    mainBtn.MouseButton1Click:Connect(function()
-        local character = LocalPlayer.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
-        if root then
-            if positions[name] then
-                root.CFrame = CFrame.new(positions[name] + Vector3.new(0, 3, 0))
-            else
-                positions[name] = root.Position
-                saveToFile()
-                updateLabelText(name)
-            end
-        end
-    end)
-    
-    local resetBtn = Instance.new("TextButton", row)
-    resetBtn.Size = UDim2.new(0, 50, 1, 0)
-    resetBtn.Position = UDim2.new(0, 190, 0, 0)
-    resetBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
-    resetBtn.Text = "تغيير"
-    resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    resetBtn.Font = Enum.Font.SourceSansBold
-    resetBtn.TextSize = 12
-    Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 6)
-    
-    resetBtn.MouseButton1Click:Connect(function()
-        positions[name] = nil
-        saveToFile()
-        updateLabelText(name)
-    end)
-    
-    labels[name] = row
-    updateLabelText(name)
-end
-
-createSlotRow("J")
-createSlotRow("K")
-createSlotRow("L")
-
--- ────────────────────────────────────────────────
---  نظام تعقب والتحكم باللاعبين (Player Tracker)
--- ────────────────────────────────────────────────
-local TrackerLabel = Instance.new("TextLabel", ContentFrame)
-TrackerLabel.Size = UDim2.new(0, 240, 0, 20)
-TrackerLabel.Text = "── التحكم باللاعبين والمشاهدة ──"
-TrackerLabel.TextColor3 = Color3.fromRGB(155, 89, 182)
-TrackerLabel.Font = Enum.Font.SourceSansBold
-TrackerLabel.TextSize = 12
-
-local PlayerFrame = Instance.new("Frame", ContentFrame)
-PlayerFrame.Size = UDim2.new(0, 240, 0, 75)
-PlayerFrame.BackgroundTransparency = 1
-
-local NameBox = Instance.new("TextBox", PlayerFrame)
-NameBox.Size = UDim2.new(1, 0, 0, 30)
-NameBox.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
-NameBox.PlaceholderText = "اكتب اسم اللاعب هنا..."
-NameBox.Text = ""
-NameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-NameBox.Font = Enum.Font.SourceSans
-NameBox.TextSize = 13
-Instance.new("UICorner", NameBox).CornerRadius = UDim.new(0, 6)
-
-local SpecBtn = Instance.new("TextButton", PlayerFrame)
-SpecBtn.Size = UDim2.new(0, 115, 0, 35)
-SpecBtn.Position = UDim2.new(0, 0, 0, 35)
-SpecBtn.BackgroundColor3 = Color3.fromRGB(142, 68, 173)
-SpecBtn.Text = "مشاهدة 👁"
-SpecBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SpecBtn.Font = Enum.Font.SourceSansBold
-SpecBtn.TextSize = 13
-Instance.new("UICorner", SpecBtn).CornerRadius = UDim.new(0, 6)
-
-local TeleportBtn = Instance.new("TextButton", PlayerFrame)
-TeleportBtn.Size = UDim2.new(0, 115, 0, 35)
-TeleportBtn.Position = UDim2.new(0, 125, 0, 35)
-TeleportBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
-TeleportBtn.Text = "انتقال إليه 🚀"
-TeleportBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-TeleportBtn.Font = Enum.Font.SourceSansBold
-TeleportBtn.TextSize = 13
-Instance.new("UICorner", TeleportBtn).CornerRadius = UDim.new(0, 6)
-
-local spectating = false
-SpecBtn.MouseButton1Click:Connect(function()
-    local target = GetPlayerByName(NameBox.Text)
-    if target and target ~= LocalPlayer then
-        if not spectating then
-            if target.Character and target.Character:FindFirstChild("Humanoid") then
-                Camera.CameraSubject = target.Character.Humanoid
-                SpecBtn.Text = "إلغاء ❌"
-                SpecBtn.BackgroundColor3 = Color3.fromRGB(230, 126, 34)
-                spectating = true
-            end
-        else
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-                Camera.CameraSubject = LocalPlayer.Character.Humanoid
-                SpecBtn.Text = "مشاهدة 👁"
-                SpecBtn.BackgroundColor3 = Color3.fromRGB(142, 68, 173)
-                spectating = false
-            end
-        end
+ToggleButton.MouseButton1Click:Connect(function()
+    KillAuraEnabled = not KillAuraEnabled
+    if KillAuraEnabled then
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
+        ToggleButton.Text = "Kill Aura: ON"
+        startKillAura()
+    else
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+        ToggleButton.Text = "Kill Aura: OFF"
+        stopKillAura()
     end
 end)
 
-TeleportBtn.MouseButton1Click:Connect(function()
-    local target = GetPlayerByName(NameBox.Text)
-    if target and target ~= LocalPlayer then
-        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        local targetRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-        if myRoot and targetRoot then
-            myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
-        end
+-- مدخلات تعديل المدى والسرعة (الـ Range والـ APS)
+local function createCustomInput(title, defaultVal, posY, callback)
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0, 120, 0, 20)
+    Label.Position = UDim2.new(0, 20, 0, posY)
+    Label.BackgroundTransparency = 1
+    Label.Text = title
+    Label.TextColor3 = Color3.fromRGB(180, 180, 180)
+    Label.Font = Enum.Font.Gotham
+    Label.TextSize = 12
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = MainFrame
+
+    local Box = Instance.new("TextBox")
+    Box.Size = UDim2.new(0, 140, 0, 30)
+    Box.Position = UDim2.new(0, 20, 0, posY + 22)
+    Box.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    Box.Text = tostring(defaultVal)
+    Box.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Box.Font = Enum.Font.Gotham
+    Box.TextSize = 14
+    Box.Parent = MainFrame
+    Instance.new("UICorner", Box).CornerRadius = UDim.new(0, 5)
+
+    Box.FocusLost:Connect(function()
+        local val = tonumber(Box.Text)
+        if val then callback(val) end
+    end)
+end
+
+createCustomInput("Aura Range (المدى):", KillAuraRange, 120, function(val) KillAuraRange = val end)
+createCustomInput("Attacks / Sec (السرعة):", AttacksPerSecond, 190, function(val) AttacksPerSecond = val end)
+
+-- قسم الـ TARGET LIST (قائمة الأهداف المستهدفة)
+local TargetTitle = Instance.new("TextLabel")
+TargetTitle.Size = UDim2.new(0, 140, 0, 20)
+TargetTitle.Position = UDim2.new(0, 180, 0, 60)
+TargetTitle.BackgroundTransparency = 1
+TargetTitle.Text = "🎯 Target List (الفراغ = الكل)"
+TargetTitle.TextColor3 = Color3.fromRGB(255, 100, 100)
+TargetTitle.Font = Enum.Font.GothamBold
+TargetTitle.TextSize = 12
+TargetTitle.Parent = MainFrame
+
+local TargetBox = Instance.new("TextBox")
+TargetBox.Size = UDim2.new(0, 140, 0, 35)
+TargetBox.Position = UDim2.new(0, 180, 0, 85)
+TargetBox.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+TargetBox.PlaceholderText = "اكتب الاسم هنا واضغط Enter"
+TargetBox.Text = ""
+TargetBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+TargetBox.TextSize = 11
+TargetBox.Font = Enum.Font.Gotham
+TargetBox.Parent = MainFrame
+Instance.new("UICorner", TargetBox).CornerRadius = UDim.new(0, 5)
+
+local TargetDisplay = Instance.new("TextLabel")
+TargetDisplay.Size = UDim2.new(0, 140, 0, 180)
+TargetDisplay.Position = UDim2.new(0, 180, 0, 130)
+TargetDisplay.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+TargetDisplay.Text = "المستهدفين الآن:\nالجميع"
+TargetDisplay.TextColor3 = Color3.fromRGB(200, 200, 200)
+TargetDisplay.TextSize = 12
+TargetDisplay.Font = Enum.Font.Gotham
+TargetDisplay.TextYAlignment = Enum.TextYAlignment.Top
+TargetDisplay.Parent = MainFrame
+Instance.new("UICorner", TargetDisplay).CornerRadius = UDim.new(0, 5)
+
+TargetBox.FocusLost:Connect(function(enterPressed)
+    if enterPressed and TargetBox.Text ~= "" then
+        local name = TargetBox.Text:lower()
+        table.insert(TargetNamesList, name)
+        TargetBox.Text = ""
+        TargetDisplay.Text = "المستهدفين الآن:\n" .. table.concat(TargetNamesList, "\n")
     end
 end)
 
--- استماع الكيبورد
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    local pressedKey = input.KeyCode.Name
-    
-    if input.KeyCode == Enum.KeyCode.LeftControl then
-        MainFrame.Visible = not MainFrame.Visible
-        return
-    end
-    
-    for feat, bind in pairs(Keybinds) do
-        if pressedKey == bind then
-            Features[feat] = not Features[feat]
-            local btn = toggleButtons[feat]
-            if btn then
-                btn.BackgroundColor3 = Features[feat] and Color3.fromRGB(255, 0, 80) or Color3.fromRGB(30, 30, 38)
-                local displayName = feat == "KillAura" and "Kill Aura" or feat == "AutoBlock" and "Auto Block" or feat == "SpeedEnabled" and "Speed" or "Flight Mode"
-                btn.Text = displayName .. (Features[feat] and " : ON 🔥" or " : OFF")
-                btn.TextColor3 = Features[feat] and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
-            end
-        end
-    end
-    
-    if pressedKey == "J" or pressedKey == "K" or pressedKey == "L" then
-        local character = LocalPlayer.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
-        if root then
-            if positions[pressedKey] then
-                root.CFrame = CFrame.new(positions[pressedKey] + Vector3.new(0, 3, 0))
-            else
-                positions[pressedKey] = root.Position
-                saveToFile()
-                updateLabelText(pressedKey)
-            end
-        end
+-- قسم الـ WHITE LIST (قائمة الأصدقاء المحميين)
+local FriendTitle = Instance.new("TextLabel")
+FriendTitle.Size = UDim2.new(0, 140, 0, 20)
+FriendTitle.Position = UDim2.new(0, 340, 0, 60)
+FriendTitle.BackgroundTransparency = 1
+FriendTitle.Text = "🛡️ White List (الأصدقاء)"
+FriendTitle.TextColor3 = Color3.fromRGB(100, 200, 255)
+FriendTitle.Font = Enum.Font.GothamBold
+FriendTitle.TextSize = 12
+FriendTitle.Parent = MainFrame
+
+local FriendBox = Instance.new("TextBox")
+FriendBox.Size = UDim2.new(0, 140, 0, 35)
+FriendBox.Position = UDim2.new(0, 340, 0, 85)
+FriendBox.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+FriendBox.PlaceholderText = "اكتب الاسم هنا واضغط Enter"
+FriendBox.Text = ""
+FriendBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+FriendBox.TextSize = 11
+FriendBox.Font = Enum.Font.Gotham
+FriendBox.Parent = MainFrame
+Instance.new("UICorner", FriendBox).CornerRadius = UDim.new(0, 5)
+
+local FriendDisplay = Instance.new("TextLabel")
+FriendDisplay.Size = UDim2.new(0, 140, 0, 180)
+FriendDisplay.Position = UDim2.new(0, 340, 0, 130)
+FriendDisplay.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+FriendDisplay.Text = "المحميين:\nلا أحد"
+FriendDisplay.TextColor3 = Color3.fromRGB(200, 200, 200)
+FriendDisplay.TextSize = 12
+FriendDisplay.Font = Enum.Font.Gotham
+FriendDisplay.TextYAlignment = Enum.TextYAlignment.Top
+FriendDisplay.Parent = MainFrame
+Instance.new("UICorner", FriendDisplay).CornerRadius = UDim.new(0, 5)
+
+FriendBox.FocusLost:Connect(function(enterPressed)
+    if enterPressed and FriendBox.Text ~= "" then
+        local name = FriendBox.Text:lower()
+        table.insert(FriendsNamesList, name)
+        FriendBox.Text = ""
+        FriendDisplay.Text = "المحميين:\n" .. table.concat(FriendsNamesList, "\n")
     end
 end)
 
-RunService.RenderStepped:Connect(function()
-    FrameStroke.Color = Color3.fromHSV((tick() * 0.15) % 1, 0.85, 1)
+-- زر تصفير وإعادة تعيين القوائم بالكامل
+local ResetListsBtn = Instance.new("TextButton")
+ResetListsBtn.Size = UDim2.new(0, 300, 0, 25)
+ResetListsBtn.Position = UDim2.new(0, 180, 0, 315)
+ResetListsBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+ResetListsBtn.Text = "🔄 تفريغ القوائم وإعادة التعيين"
+ResetListsBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+ResetListsBtn.Font = Enum.Font.Gotham
+ResetListsBtn.TextSize = 11
+ResetListsBtn.Parent = MainFrame
+Instance.new("UICorner", ResetListsBtn).CornerRadius = UDim.new(0, 4)
+
+ResetListsBtn.MouseButton1Click:Connect(function()
+    TargetNamesList = {}
+    FriendsNamesList = {}
+    TargetDisplay.Text = "المستهدفين الآن:\nالجميع"
+    FriendDisplay.Text = "المحميين:\nلا أحد"
+end)
+
+-- زر إغلاق الواجهة نهائياً وحذفها بأمان
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -35, 0, 5)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 18
+CloseBtn.Parent = MainFrame
+
+CloseBtn.MouseButton1Click:Connect(function()
+    stopKillAura()
+    ScreenGui:Destroy()
 end)
