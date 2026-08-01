@@ -1,4 +1,4 @@
--- واجهة Ainz v3 المطورة - نسخة التثبيت الفيزيائي (الشنطة) والـ Grab الذكي
+-- واجهة Ainz v3 المطورة - نسخة التثبيت الفيزيائي المستمر مع التحكم الحر بالـ Q
 local ScreenGui = Instance.new("ScreenGui")
 local MainFrame = Instance.new("Frame")
 local Title = Instance.new("TextLabel")
@@ -29,7 +29,7 @@ Title.Parent = MainFrame
 Title.BackgroundTransparency = 1
 Title.Size = UDim2.new(1, 0, 0, 40)
 Title.Font = Enum.Font.SourceSansBold
-Title.Text = "🔮 AINZ v3 - Quantum Backpack"
+Title.Text = "🔮 AINZ v3 - Continuous Backpack"
 Title.TextColor3 = Color3.fromRGB(255, 85, 255)
 Title.TextSize = 18
 
@@ -111,8 +111,6 @@ local HitRF = CombatServices:WaitForChild("RF"):FindFirstChild("Hit")
 local glueActive = false
 local autoBlockEnabled = false
 local antiRagdollEnabled = false
-local isCooldown = false -- قفل الوقت الذكي
-local successfullyGrabbed = false -- فلاج للتأكد من نجاح الإمساك
 
 local function GetTarget()
     local inputText = NameInput.Text
@@ -131,15 +129,12 @@ task.spawn(function()
     while task.wait(0.1) do
         local p = GetTarget()
         if p then 
-            if isCooldown then
-                TargetLabel.Text = "⚡ انتهاء الـ Grab.. في فترة الانتظار"
-                TargetLabel.TextColor3 = Color3.fromRGB(255, 85, 85)
-            elseif glueActive then
-                TargetLabel.Text = "🎯 جاري محاولة الإمساك بـ: " .. p.DisplayName
-                TargetLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-            else
-                TargetLabel.Text = "جاهز للانقضاض خلف: " .. p.DisplayName 
+            if glueActive then
+                TargetLabel.Text = "🔒 مثبت كشنطة خلف: " .. p.DisplayName
                 TargetLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+            else
+                TargetLabel.Text = "جاهز للالتصاق المستمر خلف: " .. p.DisplayName 
+                TargetLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
             end
         else 
             TargetLabel.Text = "اكتب اسم الهاكر بالظبط!" 
@@ -148,67 +143,39 @@ task.spawn(function()
     end
 end)
 
--- [1] حلقة التثبيت الفيزيائي (الالتصاق كشنطة في الضهر)
+-- [1] حلقة التثبيت الفيزيائي المستمر (يفضل لازق فيه وميسبهوش أبداً)
 RunService.RenderStepped:Connect(function()
-    if glueActive and not isCooldown then
+    if glueActive then
         local targetPlayer = GetTarget()
         if targetPlayer and targetPlayer.Character and LocalPlayer.Character then
             local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
             
             if myHRP and targetHRP then
-                -- إلغاء قوى الارتداد تماماً لتجنب الـ Rubberbanding
+                -- مزامنة قوى الحركة عشان تمنع أي تفليت فيزيائي أو ارتداد
                 myHRP.AssemblyLinearVelocity = targetHRP.AssemblyLinearVelocity
                 myHRP.AssemblyAngularVelocity = targetHRP.AssemblyAngularVelocity
                 
-                -- التوجيه والنظر مع شاشة الخصم
+                -- إجبار الكاميرا والنظر في نفس اتجاه شاشة الخصم
                 local targetLookVector = targetHRP.CFrame.LookVector
                 Camera.CFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + targetLookVector)
                 
-                -- تثبيتك خلف ظهره مباشرة بـ 0.5 متر كأنه يرتديك كحقيبة
+                -- الالتصاق التام خلف ظهره بمسافة 0.5 متر (شنطة حقيقية مستمرة)
                 myHRP.CFrame = (targetHRP.CFrame * CFrame.new(0, 0, 0.5))
             end
         end
     end
 end)
 
--- [2] حلقة الـ Grab الذكية (سبام حتى يمسك، والوقت يبدأ بعد الإمساك)
+-- [2] حلقة سبام الـ Grab والـ Hit (شغال طول ما أنت ضاغط Q ومفعل الوضع)
 task.spawn(function()
     while true do
         RunService.Heartbeat:Wait()
-        if glueActive and not isCooldown then
+        if glueActive then
             local targetPlayer = GetTarget()
             if targetPlayer and targetPlayer.Character then
-                -- سبام سريع جداً للمسكة بدون انتظار
-                task.spawn(function()
-                    local success, result = pcall(function() 
-                        return GrabRF:InvokeServer(targetPlayer.Character) 
-                    end)
-                    
-                    -- إذا السيرفر رجع استجابة تفيد بأن اللاعب تم إمساكه بنجاح
-                    if success and not successfullyGrabbed then
-                        successfullyGrabbed = true
-                        glueActive = false -- إيقاف السبام فوراً
-                        isCooldown = true -- تفعيل وقت الانتظار الآن!
-                        
-                        -- تحديث شكل الزرار
-                        GlueToggle.Text = "فترة الانتظار (WAIT)"
-                        GlueToggle.BackgroundColor3 = Color3.fromRGB(100, 30, 30)
-                        GlueToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-                        
-                        -- انتظر حتى ينتهي الأنيميشن أو مدة الـ Grab في اللعبة
-                        task.wait(1.8) 
-                        
-                        -- إعادة تصفير الحالة للضغطة القادمة
-                        isCooldown = false
-                        successfullyGrabbed = false
-                        GlueToggle.Text = "وضع الوميض: واقف (OFF)"
-                        GlueToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-                        GlueToggle.TextColor3 = Color3.fromRGB(255, 85, 85)
-                    end
-                end)
-                
-                -- سبام ضربات متزامن
+                -- سبام مستمر وسريع جداً للمسكات والضربات بدون أي إيقاف تلقائي
+                task.spawn(function() pcall(function() GrabRF:InvokeServer(targetPlayer.Character) end) end)
                 if HitRF then
                     task.spawn(function() pcall(function() HitRF:InvokeServer(targetPlayer.Character) end) end)
                 end
@@ -217,14 +184,11 @@ task.spawn(function()
     end
 end)
 
--- تشغيل وإيقاف الوضع يدوياً
+-- تشغيل وإيقاف الوضع (يدوياً بنسبة 100% عن طريق Q)
 function ToggleGlue()
-    if isCooldown then return end -- منع التشغيل لو في فترة الانتظار بعد مسكة ناجحة
-
     glueActive = not glueActive
     if glueActive then
-        successfullyGrabbed = false
-        GlueToggle.Text = "جاري الالتصاق والمسك... ⚡"
+        GlueToggle.Text = "وضع الالتصاق المستمر: ON 🔒"
         GlueToggle.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
         GlueToggle.TextColor3 = Color3.fromRGB(0,0,0)
     else
@@ -277,7 +241,7 @@ task.spawn(function()
     end
 end)
 
--- الاختصارات
+-- الاختصارات (التحكم الكامل عبر الضغط)
 UIS.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     local currentGlueKey = GlueBindInput.Text:upper()
