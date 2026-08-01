@@ -1,4 +1,4 @@
--- واجهة Ainz v3 المطورة - نسخة التثبيت الفيزيائي المستمر مع التحكم الحر بالـ Q
+-- واجهة Ainz v3 المطورة - نسخة الاختراق الفيزيائي السريع (Quantum Overclock)
 local ScreenGui = Instance.new("ScreenGui")
 local MainFrame = Instance.new("Frame")
 local Title = Instance.new("TextLabel")
@@ -29,7 +29,7 @@ Title.Parent = MainFrame
 Title.BackgroundTransparency = 1
 Title.Size = UDim2.new(1, 0, 0, 40)
 Title.Font = Enum.Font.SourceSansBold
-Title.Text = "🔮 AINZ v3 - Continuous Backpack"
+Title.Text = "🔮 AINZ v3 - Overclock Locked"
 Title.TextColor3 = Color3.fromRGB(255, 85, 255)
 Title.TextSize = 18
 
@@ -130,11 +130,11 @@ task.spawn(function()
         local p = GetTarget()
         if p then 
             if glueActive then
-                TargetLabel.Text = "🔒 مثبت كشنطة خلف: " .. p.DisplayName
-                TargetLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
-            else
-                TargetLabel.Text = "جاهز للالتصاق المستمر خلف: " .. p.DisplayName 
+                TargetLabel.Text = "⚡ وضع الاندماج الأقصى نشط!"
                 TargetLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+            else
+                TargetLabel.Text = "جاهز للانقضاض خلف: " .. p.DisplayName 
+                TargetLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
             end
         else 
             TargetLabel.Text = "اكتب اسم الهاكر بالظبط!" 
@@ -143,38 +143,41 @@ task.spawn(function()
     end
 end)
 
--- [1] حلقة التثبيت الفيزيائي المستمر (يفضل لازق فيه وميسبهوش أبداً)
-RunService.RenderStepped:Connect(function()
-    if glueActive then
-        local targetPlayer = GetTarget()
-        if targetPlayer and targetPlayer.Character and LocalPlayer.Character then
-            local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-            
-            if myHRP and targetHRP then
-                -- مزامنة قوى الحركة عشان تمنع أي تفليت فيزيائي أو ارتداد
-                myHRP.AssemblyLinearVelocity = targetHRP.AssemblyLinearVelocity
-                myHRP.AssemblyAngularVelocity = targetHRP.AssemblyAngularVelocity
-                
-                -- إجبار الكاميرا والنظر في نفس اتجاه شاشة الخصم
-                local targetLookVector = targetHRP.CFrame.LookVector
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + targetLookVector)
-                
-                -- الالتصاق التام خلف ظهره بمسافة 0.5 متر (شنطة حقيقية مستمرة)
-                myHRP.CFrame = (targetHRP.CFrame * CFrame.new(0, 0, 0.5))
+-- دالة الانتقال الفائق (تكرار بدون انتظار لمنع أي تأخير)
+local function StartInstantTeleport()
+    -- فتح 3 مسارات متوازية عشان نضمن إن مفيش ولا فريم يهرب
+    for i = 1, 3 do
+        task.spawn(function()
+            while glueActive do
+                -- حلقة مضغوطة جداً للأداء الأقصى (بدون task.wait)
+                local targetPlayer = GetTarget()
+                if targetPlayer and targetPlayer.Character and LocalPlayer.Character then
+                    local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    
+                    if myHRP and targetHRP then
+                        -- دمج السرعة الفيزيائية لإلغاء أي مقاومة من السيرفر
+                        myHRP.AssemblyLinearVelocity = targetHRP.AssemblyLinearVelocity
+                        myHRP.AssemblyAngularVelocity = targetHRP.AssemblyAngularVelocity
+                        
+                        -- الالتصاق التام خلفه مباشرة ومزامنة حركة الكاميرا فوراً
+                        myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 0.3)
+                    end
+                end
+                -- إجبار اللعبة على الانتقال للفريم اللي بعده بأسرع طريقة برمجية
+                RunService.Stepped:Wait() 
             end
-        end
+        end)
     end
-end)
+end
 
--- [2] حلقة سبام الـ Grab والـ Hit (شغال طول ما أنت ضاغط Q ومفعل الوضع)
+-- [2] حلقة سبام الـ Grab والـ Hit اللانهائي
 task.spawn(function()
     while true do
         RunService.Heartbeat:Wait()
         if glueActive then
             local targetPlayer = GetTarget()
             if targetPlayer and targetPlayer.Character then
-                -- سبام مستمر وسريع جداً للمسكات والضربات بدون أي إيقاف تلقائي
                 task.spawn(function() pcall(function() GrabRF:InvokeServer(targetPlayer.Character) end) end)
                 if HitRF then
                     task.spawn(function() pcall(function() HitRF:InvokeServer(targetPlayer.Character) end) end)
@@ -184,13 +187,16 @@ task.spawn(function()
     end
 end)
 
--- تشغيل وإيقاف الوضع (يدوياً بنسبة 100% عن طريق Q)
+-- تشغيل وإيقاف الوضع يدوياً بالكامل
 function ToggleGlue()
     glueActive = not glueActive
+    
     if glueActive then
-        GlueToggle.Text = "وضع الالتصاق المستمر: ON 🔒"
+        GlueToggle.Text = "وضع الاندماج: شغال (ON) ⚡"
         GlueToggle.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
         GlueToggle.TextColor3 = Color3.fromRGB(0,0,0)
+        -- استدعاء دالة الانتقال الفائق
+        StartInstantTeleport()
     else
         GlueToggle.Text = "وضع الوميض: واقف (OFF)"
         GlueToggle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
@@ -241,7 +247,7 @@ task.spawn(function()
     end
 end)
 
--- الاختصارات (التحكم الكامل عبر الضغط)
+-- الاختصارات
 UIS.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     local currentGlueKey = GlueBindInput.Text:upper()
