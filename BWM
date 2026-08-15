@@ -1,0 +1,94 @@
+-- Original BW Name Script with Clean GUI
+local RunService        = game:GetService("RunService")
+local CoreGui           = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- تنظيف الواجهة القديمة إذا أعيد تشغيل السكربت
+if CoreGui:FindFirstChild("PureBWNameGui") then
+    CoreGui.PureBWNameGui:Destroy()
+end
+
+-- المتغيرات الأساسية للميزة
+local BWNameActive = false
+local rnHue = 0
+local bwLastUpdate = 0
+local rnSpeed = 0.7        -- السرعة الأصلية من السكربت[cite: 1]
+local rnUpdateRate = 0.02   -- معدل التحديث الأصلي[cite: 1]
+
+-- جلب الريموت المسؤول عن الاسم في اللعبة[cite: 1]
+local rainbowNameRemote = ReplicatedStorage:WaitForChild("Remotes", 10)
+rainbowNameRemote = rainbowNameRemote and rainbowNameRemote:FindFirstChild("SetRPNameColor")
+
+-- [ تصميم الـ GUI ]
+local PureGui = Instance.new("ScreenGui")
+PureGui.Name = "PureBWNameGui"
+PureGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 180, 0, 90)
+MainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = PureGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.Text = "⌨️ BW NAME"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 14
+Title.Parent = MainFrame
+Instance.new("UICorner").Parent = Title
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0.9, 0, 0, 40)
+ToggleButton.Position = UDim2.new(0.05, 0, 0.45, 0)
+ToggleButton.Text = "BW Name: OFF"
+ToggleButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.Font = Enum.Font.SourceSansBold
+ToggleButton.TextSize = 14
+ToggleButton.Parent = MainFrame
+Instance.new("UICorner").Parent = ToggleButton
+
+-- [ تشغيل وإيقاف الزر ]
+ToggleButton.MouseButton1Click:Connect(function()
+    BWNameActive = not BWNameActive
+    if BWNameActive then
+        ToggleButton.Text = "BW Name: ON"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        ToggleButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+    else
+        ToggleButton.Text = "BW Name: OFF"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+        ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+end)
+
+-- [ الحلقة البرمجية الأصلية لحساب الوميض ]
+RunService.Heartbeat:Connect(function(dt)
+    if not rainbowNameRemote or not BWNameActive then return end
+    local now = os.clock()
+
+    -- المعادلة الأصلية لحساب تأرجح وتدرج اللون[cite: 1]
+    rnHue = (rnHue + (dt * rnSpeed)) % 1
+    
+    if now - bwLastUpdate >= rnUpdateRate then
+        local intensity = (math.sin(rnHue * math.pi * 2) + 1) / 2
+        local bwColor = Color3.new(intensity, intensity, intensity)
+        
+        -- إرسال اللون المتأرجح إلى السيرفر[cite: 1]
+        pcall(function() 
+            rainbowNameRemote:FireServer(bwColor) 
+        end)
+        
+        bwLastUpdate = now
+    end
+end)
